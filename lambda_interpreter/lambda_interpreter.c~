@@ -5,6 +5,286 @@
 #define CONTINUE 0
 #define EXIT 1
 
+#define ID 0
+#define LPAR 1
+#define RPAR 2
+#define LAMBDA 3
+#define DOT 4
+
+//AST types
+#define ANONYMOUS 0
+#define APPLICATION 1
+#define IDENT 2
+
+
+//Scanner/Lexer
+char *lex_line;
+int lex_cnt=0;
+
+int is_whitespace(char c)
+{
+	switch(c)
+	{
+	case ' ':
+	case '\t':	
+	case '\r':
+	case '\n':
+		return 1;
+	default:
+		return 0;
+	}	
+}
+
+int is_char(char c)
+{
+	if((c>='a' && c<='z') || (c>='A' && c<='Z') || (c=='_'))
+		return 1;
+	else
+		return 0;
+}
+
+//true if the next token matches "t"
+//does not consume token
+int l_next(int t)
+{
+	while(is_whitespace(lex_line[lex_cnt]))
+		lex_cnt++;
+	//printf("next token %c\n",lex_line[lex_cnt]);
+	switch(t)
+	{
+	case LPAR: if(lex_line[lex_cnt]=='(') return 1; else return 0;
+	case RPAR: if(lex_line[lex_cnt]==')') return 1; else return 0;
+	case LAMBDA: if(lex_line[lex_cnt]=='\\') return 1; else return 0;
+	case DOT: if(lex_line[lex_cnt]=='.') return 1; else return 0;
+	default: if(is_char(lex_line[lex_cnt])) return 1; else return 0;
+	}	
+}
+//true if the next token matches "t"
+//consumes token if it matches
+int l_skip(int t)
+{
+	while(is_whitespace(lex_line[lex_cnt]))
+		lex_cnt++;
+	//printf("skip token %c\n",lex_line[lex_cnt]);
+	switch(t)
+	{
+	case LPAR: if(lex_line[lex_cnt]=='(') {lex_cnt++; return 1;} else return 0;
+	case RPAR: if(lex_line[lex_cnt]==')') {lex_cnt++; return 1;} else return 0;
+	case LAMBDA: if(lex_line[lex_cnt]=='\\') {lex_cnt++; return 1;} else return 0;
+	case DOT: if(lex_line[lex_cnt]=='.') {lex_cnt++; return 1;} else return 0;
+	default: while(is_char(lex_line[lex_cnt])){lex_cnt++;} return 1;
+	}	
+}
+
+//Skip the token
+void l_match()
+{
+	while(is_whitespace(lex_line[lex_cnt]))
+		lex_cnt++;
+	//printf("match token %c\n",lex_line[lex_cnt]);
+	switch(lex_line[lex_cnt])
+	{
+	case '(': lex_cnt++; return;
+	case ')': lex_cnt++; return;
+	case '\\': lex_cnt++; return;
+	case '.': lex_cnt++; return;
+	default: while(is_char(lex_line[lex_cnt])){lex_cnt++;} return;
+	}	
+}
+
+//skip and return the token
+char *l_token()
+{
+	char buf[256];
+	char *ret;
+	int i=0;
+	while(is_whitespace(lex_line[lex_cnt]))
+		lex_cnt++;
+	//printf("token token %c\n",lex_line[lex_cnt]);
+	while(is_char(lex_line[lex_cnt]))
+	{
+		buf[i]=lex_line[lex_cnt];
+		lex_cnt++;
+		i++;
+		if(i==256)
+		{
+			printf("Error: Identifier name too long.\n");
+			return NULL;
+		}
+	}
+	buf[i]='\0';
+	ret=(char *)malloc(strlen(buf)+1);
+	strcpy(ret,buf);
+	return ret;
+}
+
+//Creates an AST from the input
+
+
+struct AST_node
+{
+	int type;
+	void *right;
+	void *left;
+};
+typedef struct AST_node AST_node;
+
+AST_node *term();
+AST_node *atom();
+AST_node *application();
+
+AST_node *term()
+{
+	AST_node *node;
+	
+	node=(AST_node *)malloc(sizeof(AST_node));
+
+	//printf("term\n");
+	if (l_skip(LAMBDA)) 
+	{
+		//printf("LAMBDA ");
+		node->type=ANONYMOUS;
+		node->left=l_token();
+		//printf("token ");
+		l_match(DOT);
+		//printf("DOT ");
+		node->right=term();
+		//printf("EDN term\n");
+		return node;  	
+	}  
+	else 
+	{
+    		return application();
+  	}
+}
+
+
+
+AST_node *application() 
+{
+	AST_node *nodel, *noder, *tmp;
+
+	//printf("\napplication\n");
+
+	nodel=atom();
+
+    
+  	while (1) 
+	{
+		noder=atom();
+    		if (!noder) 
+		{
+			//printf("empty application\n");
+      			return nodel;
+    		} 
+		else 
+		{
+			//printf("not empty aplication\n");
+			tmp=(AST_node *)malloc(sizeof(AST_node));
+			tmp->type=APPLICATION;
+			tmp->right=noder;
+			tmp->left=nodel;
+			nodel=tmp;
+    		}
+  	}
+}
+
+AST_node *atom() 
+{
+	AST_node *my_term;
+
+	//printf("atom\n");
+
+  	if (l_skip(LPAR)) 
+	{
+		//printf(" ( ");
+    		my_term=term();
+    		l_match(RPAR);
+    		return my_term;
+  	} 
+	else 
+	{
+		if (l_next(ID)) 
+		{
+			//printf("ID ");
+			my_term=(AST_node *)malloc(sizeof(AST_node));
+			my_term->type=IDENT;
+			my_term->left=l_token();
+			my_term->right=NULL;
+			return my_term;
+  		} 
+		else 
+		{
+			//printf("null\n");
+    			return NULL;
+  		}
+	}
+}
+
+
+void print_AST(AST_node *n);
+
+
+/*
+Grammar:
+
+term: application | LAMBDA ID DOT term
+
+application: application atom | atom
+
+atom: ID | LPAR term RPAR
+
+*/
+void parse(char *line) 
+{
+	lex_line=line;
+	lex_cnt=0;
+
+	AST_node *AST_head;
+	printf("Parsing... %s\n", line);
+	AST_head=term();
+	print_AST(AST_head);
+}
+
+
+
+
+void print_AST(AST_node *n)
+{
+	if(n==NULL)
+	{
+		//printf("null\n");
+		return;
+	}
+	if(n->type==IDENT)
+	{
+		//printf("ident\n");
+		printf("%s",(char *)(n->left));
+	}
+	if(n->type==ANONYMOUS)
+	{
+		//printf("anon\n");
+		printf("\\%s .",(char *)(n->left));
+		print_AST(n->right);
+	}
+	if(n->type==APPLICATION)
+	{
+		//printf("app\n");
+		print_AST(n->left);
+		print_AST(n->right);
+	}
+}
+
+
+
+
+
+
+
+
+
+
+
 int not_white(char e)
 {
 	switch(e)
@@ -59,6 +339,7 @@ char *eval(char *exp)
 			rec_exp=eval(exp+j);
 			exp[j]='\0';
 			strcat(exp,rec_exp);
+			free(rec_exp);
 			printf("new exp %s\n",exp);
 		}
 	}
@@ -88,12 +369,15 @@ char *eval(char *exp)
 
 	switch(exp[1])
 	{
-	
+	//native s-expressions
 	case '+': sprintf(tmp,"%d",atoi(e1)+atoi(e2)); break; 
 	case '-': sprintf(tmp,"%d",atoi(e1)-atoi(e2)); break; 
 	case '*': sprintf(tmp,"%d",atoi(e1)*atoi(e2)); break; 
 	case '/': sprintf(tmp,"%d",atoi(e1)/atoi(e2)); break;
 	case '%': sprintf(tmp,"%d",atoi(e1)%atoi(e2)); break;  
+	case '\\': break; //anonymous function
+	case '|': break; //function application
+	default: break; //variable reference	
 	}	
 	//printf("tmp %s\n",tmp);
 	
@@ -135,6 +419,9 @@ int repl()
 	if(strcmp(line,"exit")==0)
 		return EXIT;
 
+
+	parse(line);
+	return CONTINUE;
 	//"eval" assumes the expression is an s-expression
 	result=eval(line);
 	printf("result %s\n",result);
